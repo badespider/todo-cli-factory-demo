@@ -13,9 +13,10 @@ const defaultIo = {
 const commands = {};
 
 // add <text...>: arguments joined with single spaces; blank text is an error and touches no file.
-// add takes no flags, so any argument starting with `-` is an unknown flag (D-commands).
+// add takes no flags, so any argument starting with `-` is an unknown flag (D-commands);
+// a bare `-` is an operand (POSIX), so it stays item text.
 commands.add = (args, env, io) => {
-  const flag = args.find((arg) => arg.startsWith('-'));
+  const flag = args.find((arg) => arg.length > 1 && arg.startsWith('-'));
   if (flag !== undefined) {
     throw new TodoError(`unknown flag for add: ${flag}`);
   }
