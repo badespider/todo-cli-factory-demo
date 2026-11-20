@@ -8,4 +8,9 @@ function addItem(state, text) {
   return { nextId: state.nextId + 1, items: [...state.items, item] };
 }
 
-module.exports = { addItem };
+// Returns the open (not done) items in ascending id order, as a new array.
+function openItems(state) {
+  return state.items.filter((item) => !item.done).sort((a, b) => a.id - b.id);
+}
+
+module.exports = { addItem, openItems };
