@@ -11,12 +11,16 @@
         "`node bin/todo.js frob` exits 1, prints nothing on stdout, and prints one line starting with `todo: ` on stderr",
         "`main([\"frob\"], {}, io)` from `src/cli.js`, with `io` = `{stdout(line), stderr(line)}` capturing lines, returns 1, writes no stdout line, writes one stderr line starting with `todo: `, and does not call `process.exit`"
       ],
-      "status": "in_progress",
+      "status": "done",
       "pr": "https://github.com/badespider/todo-cli-factory-demo/pull/4",
       "context": {
         "business": "G-7, FL-5: every command shares one predictable error path, so it comes first and later commands only add handlers.",
         "design": "Layout per D-layout (thin `bin/todo.js` shebang entry that sets `process.exitCode` from `main`); `main(argv, env, io)` per D-cli-main; `TodoError` and the `todo: <message>` format, with unexpected exceptions reported the same way and never as a stack trace, per D-errors; strict command surface per D-commands. Tests per D-tests.",
-        "code_refs": []
+        "code_refs": [
+          "src/cli.js",
+          "src/errors.js",
+          "bin/todo.js"
+        ]
       },
       "provides": {
         "F2": "TodoError (exported from src/cli.js or src/errors.js)",
