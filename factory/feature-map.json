@@ -171,12 +171,15 @@
         "`node bin/todo.js rm 99` (no such id) exits 1, prints nothing on stdout, prints a line starting with `todo: ` on stderr, and leaves the file byte-for-byte unchanged",
         "`node bin/todo.js rm abc`, `node bin/todo.js rm` and `node bin/todo.js rm 1 2` each exit 1, print nothing on stdout and print a line starting with `todo: ` on stderr"
       ],
-      "status": "in_progress",
+      "status": "done",
       "pr": "https://github.com/badespider/todo-cli-factory-demo/pull/9",
       "context": {
         "business": "G-5, FL-3: removing items keeps the list relevant.",
         "design": "Ids are never reused because `nextId` is kept per D-json-store; id and argument rules per D-commands, reusing F5's id parsing; silent success per D-output; errors per D-errors.",
-        "code_refs": []
+        "code_refs": [
+          "src/todos.js",
+          "src/cli.js"
+        ]
       },
       "files": [
         "src/cli.js",
