@@ -11,7 +11,7 @@
         "`node bin/todo.js frob` exits 1, prints nothing on stdout, and prints one line starting with `todo: ` on stderr",
         "`main([\"frob\"], {}, io)` from `src/cli.js`, with `io` = `{stdout(line), stderr(line)}` capturing lines, returns 1, writes no stdout line, writes one stderr line starting with `todo: `, and does not call `process.exit`"
       ],
-      "status": "todo",
+      "status": "in_progress",
       "pr": null,
       "context": {
         "business": "G-7, FL-5: every command shares one predictable error path, so it comes first and later commands only add handlers.",
