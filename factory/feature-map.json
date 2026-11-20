@@ -47,7 +47,7 @@
         "`load(env)` on a file containing `[]` (valid JSON, wrong shape) throws a `TodoError` whose message includes the file path"
       ],
       "status": "in_progress",
-      "pr": null,
+      "pr": "https://github.com/badespider/todo-cli-factory-demo/pull/5",
       "context": {
         "business": "G-6: items persist between runs; every command after F1 reads or writes this file, so storage is shared.",
         "design": "File shape, path resolution, missing-file and temp-file-then-rename rules per D-json-store; corrupt or wrong-shape files are `TodoError`s naming the path per D-errors (TodoError from F1). Standard library only per D-runtime. Unit tests use a fresh mkdtemp directory per D-tests.",
