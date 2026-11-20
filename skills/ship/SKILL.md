@@ -62,12 +62,12 @@ VSTART=$(date +%s); echo "$VSTART" >"$T/vstart"; echo "$(( (DEADLINE - 900 - VST
 Under 15 minutes: do not start it; report and stop (the next ship run tries again). Otherwise start it:
 
 ```sh
-KILL=$(( DEADLINE - 900 )); rm -f "$T/verify.rc"
+KILL=$(( DEADLINE - 900 )); RC="$T/verify-$(cat "$T/vstart").rc"   # a new name per attempt: nothing stale to delete
 (cd "$MAIN" && bash -c '. scripts/lib/common.sh && sf_run_timeout "$0" bash scripts/run-agent.sh --role verify --pr "$1" --task "$2"; echo "$?" >"$3"' \
-  "$(( KILL - $(date +%s) ))" "$PR" "for ship: deadline $(( KILL - 120 ))" "$T/verify.rc") </dev/null >"$T/verify.out" 2>&1; echo "exit=$(cat "$T/verify.rc")"
+  "$(( KILL - $(date +%s) ))" "$PR" "for ship: deadline $(( KILL - 120 ))" "$RC") </dev/null >"$T/verify.out" 2>&1; echo "exit=$(cat "$RC")"
 ```
 
-That command waits for the whole review. If your harness stops a single command sooner than that, start the `(cd ...)` line in the background instead (the harness's own option, or `nohup` and `&`), and between short waits look at `"$T/verify.rc"`: it holds the exit code once the run has ended. Exit 0: the reviewer finished; go on. Anything else (1 the reviewer failed, 2 it could not start, 4 or 124 out of time): stop without merging, and report the exit code and the last lines of `"$T/verify.out"` as data.
+That command waits for the whole review. If your harness stops a single command sooner than that, start the `(cd ...)` line in the background instead (the harness's own option, or `nohup` and `&`), and between short waits look for `"$RC"`: it appears, holding the exit code, once the run has ended. Each attempt writes `$T/vstart` again, so it gets its own `RC`. Exit 0: the reviewer finished; go on. Anything else (1 the reviewer failed, 2 it could not start, 4 or 124 out of time): stop without merging, and report the exit code and the last lines of `"$T/verify.out"` as data.
 
 Then read the verdict the reviewer posted for this head: the newest such first line in a comment by your own gh login (the reviewer uses it too; anyone can type a marker), created after the run started:
 

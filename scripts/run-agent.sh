@@ -185,6 +185,9 @@ _is_standing() { _in_list "$1" "$STANDING_ROLES"; }
 _given() { case "$given " in *" $1 "*) return 0 ;; esac; return 1; }
 _offline() { [ "${FACTORY_OFFLINE:-}" = 1 ]; }
 _number_ok() { case "$1" in '' | 0* | *[!0-9]*) return 1 ;; esac; [ "${#1}" -le 9 ]; }
+# _id_ok TEXT: a GitHub database id (a comment id): 64-bit, already past 9 digits. It only
+# ever goes into a URL path, never into arithmetic.
+_id_ok() { case "$1" in '' | 0* | *[!0-9]*) return 1 ;; esac; [ "${#1}" -le 19 ]; }
 _feature_ok() { case "$1" in F[0-9]*) case "${1#F}" in *[!0-9]*) return 1 ;; esac ;; *) return 1 ;; esac; }
 # _clean TEXT: TEXT with control characters shown as "?", so it can't forge a log line.
 _clean() { printf '%s' "${1//[[:cntrl:]]/?}"; }
@@ -789,7 +792,7 @@ _log_read() {
   cid="${row%%"$TAB"*}"
   line2="${row#*"$TAB"}"
   [ "$line2" != "$row" ] || line2=""
-  _number_ok "$cid" || {
+  _id_ok "$cid" || {
     sf_warn "unexpected role-log comment id"
     return 2
   }
