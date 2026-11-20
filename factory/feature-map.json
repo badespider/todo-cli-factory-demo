@@ -46,12 +46,14 @@
         "`load(env)` on a file containing `not json` throws a `TodoError` whose message includes the file path, and the file content is unchanged",
         "`load(env)` on a file containing `[]` (valid JSON, wrong shape) throws a `TodoError` whose message includes the file path"
       ],
-      "status": "todo",
-      "pr": null,
+      "status": "done",
+      "pr": "https://github.com/badespider/todo-cli-factory-demo/pull/5",
       "context": {
         "business": "G-6: items persist between runs; every command after F1 reads or writes this file, so storage is shared.",
         "design": "File shape, path resolution, missing-file and temp-file-then-rename rules per D-json-store; corrupt or wrong-shape files are `TodoError`s naming the path per D-errors (TodoError from F1). Standard library only per D-runtime. Unit tests use a fresh mkdtemp directory per D-tests.",
-        "code_refs": []
+        "code_refs": [
+          "src/store.js"
+        ]
       },
       "provides": {
         "F3": "load(env), save(env, state) and resolvePath(env) in src/store.js; state is {nextId, items: [{id, text, done}]}"
