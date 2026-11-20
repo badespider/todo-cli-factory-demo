@@ -28,4 +28,11 @@ function markDone(state, id) {
   };
 }
 
-module.exports = { addItem, openItems, allItems, markDone };
+// Returns a new state without item `id` (nextId unchanged, so ids are never reused),
+// or null when no item has that id.
+function removeItem(state, id) {
+  if (!state.items.some((item) => item.id === id)) return null;
+  return { nextId: state.nextId, items: state.items.filter((item) => item.id !== id) };
+}
+
+module.exports = { addItem, openItems, allItems, markDone, removeItem };

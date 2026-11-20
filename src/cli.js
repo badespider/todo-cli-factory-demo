@@ -58,6 +58,15 @@ commands.done = (args, env, io) => {
   if (state.items.some((item) => item.id === id && !item.done)) store.save(env, next);
 };
 
+// rm <id>: deletes the item; silent on success. Unknown id is an error and touches no file.
+commands.rm = (args, env) => {
+  const id = parseId('rm', args);
+  const state = store.load(env);
+  const next = todos.removeItem(state, id);
+  if (next === null) throw new TodoError(`no item with id ${id}`);
+  store.save(env, next);
+};
+
 function run(argv, env, io) {
   if (argv.length === 0) {
     throw new TodoError('missing command');
