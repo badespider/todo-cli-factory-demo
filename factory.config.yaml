@@ -5,7 +5,7 @@
 
 # The one value that selects the harness. run-agent.sh splits it on whitespace and
 # appends the prompt as the last argument. FACTORY_HARNESS_CMD overrides it locally.
-harness_cmd: claude -p --dangerously-skip-permissions --permission-prompts none
+harness_cmd: claude -p --permission-mode auto --permission-prompts none --setting-sources project,local --strict-mcp-config
 # CI only: installs the harness when its binary is missing on the runner.
 harness_install: none
 # Optional second harness for verify panels; none = reuse harness_cmd.
@@ -18,9 +18,9 @@ project:
 
 gate:
   # "none" is accepted for test only while no feature is done (bootstrap).
-  test: none
+  test: node --test
   # Runs selected test files; {files} is replaced by their paths.
-  test_files: none
+  test_files: node --test {files}
   test_globs:
     - test/**
     - tests/**
@@ -62,4 +62,4 @@ merge:
   protected_paths: none
   # GitHub logins whose "approve <sha>" comments count; none = any OWNER, MEMBER or
   # COLLABORATOR commenter (an agent using your account included). Set your login.
-  approvers: none
+  approvers: badespider
