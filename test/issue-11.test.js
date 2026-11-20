@@ -40,3 +40,13 @@ test('issue-11: add with a flag leaves an existing file byte-for-byte unchanged'
   assertRejected('["add","--all"] on existing file', r);
   assert.equal(fs.readFileSync(file, 'utf8'), before, 'the todo file changed');
 });
+
+test('issue-11: add keeps a bare "-" as item text, since it is an operand, not a flag', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'todo-i11-'));
+  const file = path.join(dir, 'todo.json');
+  const r = runBin(['add', 'pay', 'rent', '-', 'today'], file, dir);
+  assert.equal(r.status, 0, `bare "-" was rejected, exit ${r.status}: ${JSON.stringify(r.stderr)}`);
+  assert.equal(r.stdout, '1\n');
+  const list = runBin(['list'], file, dir);
+  assert.equal(list.stdout, '1 pay rent - today\n');
+});
