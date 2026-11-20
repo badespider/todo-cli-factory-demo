@@ -23,6 +23,17 @@ commands.add = (args, env, io) => {
   io.stdout(String(state.nextId));
 };
 
+// list: open items as `<id> <text>`, ascending by id. Read-only: never creates the file.
+commands.list = (args, env, io) => {
+  if (args.length > 0) {
+    const arg = args[0];
+    throw new TodoError(arg.startsWith('-') ? `unknown flag for list: ${arg}` : `unexpected argument for list: ${arg}`);
+  }
+  for (const item of todos.openItems(store.load(env))) {
+    io.stdout(`${item.id} ${item.text}`);
+  }
+};
+
 function run(argv, env, io) {
   if (argv.length === 0) {
     throw new TodoError('missing command');
