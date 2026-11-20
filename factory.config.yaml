@@ -18,12 +18,11 @@ project:
 
 gate:
   # "none" is accepted for test only while no feature is done (bootstrap).
-  test: node --test
+  test: node --test "test/**/*.test.js"
   # Runs selected test files; {files} is replaced by their paths.
   test_files: node --test {files}
   test_globs:
     - test/**
-    - tests/**
   lint: none
   typecheck: none
   # Feature PRs must start with a tests-only commit that fails, then pass at head.
@@ -59,7 +58,8 @@ merge:
   method: squash
   audit_days: 14
   # Project files whose changes need operator approval (e.g. package.json).
-  protected_paths: none
+  protected_paths:
+    - package.json
   # GitHub logins whose "approve <sha>" comments count; none = any OWNER, MEMBER or
   # COLLABORATOR commenter (an agent using your account included). Set your login.
   approvers: badespider

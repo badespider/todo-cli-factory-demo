@@ -1,0 +1,15 @@
+{
+  "name": "todo-cli-factory-demo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A zero-dependency Node.js command-line todo list",
+  "bin": {
+    "todo": "bin/todo.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  }
+}
