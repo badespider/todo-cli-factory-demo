@@ -108,7 +108,7 @@
         "`node bin/todo.js list extra` and `node bin/todo.js list --bogus` each exit 1, print nothing on stdout and print a line starting with `todo: ` on stderr",
         "With `TODO_FILE` naming a file containing `not json`, `node bin/todo.js list` exits 1, prints nothing on stdout, prints a `todo: ` line on stderr that contains the file path, and leaves the file unchanged"
       ],
-      "status": "todo",
+      "status": "in_progress",
       "pr": null,
       "context": {
         "business": "G-2, FL-1 step 2 and FL-6: seeing what is still open is the reason to keep the list.",
