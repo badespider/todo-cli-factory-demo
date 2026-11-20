@@ -1,6 +1,8 @@
 'use strict';
 
 const { TodoError } = require('./errors');
+const store = require('./store');
+const todos = require('./todos');
 
 const defaultIo = {
   stdout: (line) => process.stdout.write(`${line}\n`),
@@ -9,6 +11,17 @@ const defaultIo = {
 
 // Command handlers: name -> (args, env, io) => void. Later features add entries.
 const commands = {};
+
+// add <text...>: arguments joined with single spaces; blank text is an error and touches no file.
+commands.add = (args, env, io) => {
+  const text = args.join(' ');
+  if (text.trim() === '') {
+    throw new TodoError('missing item text');
+  }
+  const state = store.load(env);
+  store.save(env, todos.addItem(state, text));
+  io.stdout(String(state.nextId));
+};
 
 function run(argv, env, io) {
   if (argv.length === 0) {
