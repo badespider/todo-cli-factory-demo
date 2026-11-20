@@ -108,12 +108,15 @@
         "`node bin/todo.js list extra` and `node bin/todo.js list --bogus` each exit 1, print nothing on stdout and print a line starting with `todo: ` on stderr",
         "With `TODO_FILE` naming a file containing `not json`, `node bin/todo.js list` exits 1, prints nothing on stdout, prints a `todo: ` line on stderr that contains the file path, and leaves the file unchanged"
       ],
-      "status": "in_progress",
+      "status": "done",
       "pr": "https://github.com/badespider/todo-cli-factory-demo/pull/7",
       "context": {
         "business": "G-2, FL-1 step 2 and FL-6: seeing what is still open is the reason to keep the list.",
         "design": "Output format and ascending order per D-output; extra arguments and unknown flags are errors per D-commands; read-only commands never create the file per D-json-store; errors per D-errors. Listing logic as a pure function in `src/todos.js` per D-layout.",
-        "code_refs": []
+        "code_refs": [
+          "src/todos.js",
+          "src/cli.js"
+        ]
       },
       "provides": {
         "F5": "the list command and a pure listing function in src/todos.js that F5 extends with --all"
