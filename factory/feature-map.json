@@ -78,7 +78,7 @@
         "With `TODO_FILE` set to `<tmpA>/work.json` and the working directory `<tmpB>`, `node <repo>/bin/todo.js add x` writes the item to `<tmpA>/work.json` and creates no `<tmpB>/todo.json`"
       ],
       "status": "in_progress",
-      "pr": null,
+      "pr": "https://github.com/badespider/todo-cli-factory-demo/pull/6",
       "context": {
         "business": "G-1, FL-1 step 1 and FL-4: capturing an item is the first thing a user does, and TODO_FILE lets them keep a list per project.",
         "design": "Arguments after `add` are joined with single spaces and empty-after-trim text is an error per D-commands; output is just the id per D-output; ids come from `nextId` per D-json-store; pure list logic lives in `src/todos.js` per D-layout; errors per D-errors. E2E tests spawn `process.execPath bin/todo.js` per D-tests.",
