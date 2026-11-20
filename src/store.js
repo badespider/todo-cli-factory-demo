@@ -10,22 +10,29 @@ function resolvePath(env) {
   return path.resolve(file);
 }
 
+// Ids and nextId must be exact JavaScript integers: past Number.MAX_SAFE_INTEGER, n + 1 === n.
 function isPositiveInt(n) {
-  return Number.isInteger(n) && n >= 1;
+  return Number.isSafeInteger(n) && n >= 1;
 }
 
 function isValidState(state) {
   if (state === null || typeof state !== 'object' || Array.isArray(state)) return false;
   if (!isPositiveInt(state.nextId) || !Array.isArray(state.items)) return false;
-  return state.items.every(
-    (item) =>
+  // Ids come from nextId and are never reused: each id is unique and below nextId.
+  const seen = new Set();
+  return state.items.every((item) => {
+    const ok =
       item !== null &&
       typeof item === 'object' &&
       !Array.isArray(item) &&
       isPositiveInt(item.id) &&
+      item.id < state.nextId &&
+      !seen.has(item.id) &&
       typeof item.text === 'string' &&
-      typeof item.done === 'boolean',
-  );
+      typeof item.done === 'boolean';
+    if (ok) seen.add(item.id);
+    return ok;
+  });
 }
 
 // Returns {nextId, items}. A missing file is an empty list and is not created.
