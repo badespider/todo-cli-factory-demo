@@ -140,7 +140,7 @@
         "`node bin/todo.js done 99` (no such id) exits 1, prints nothing on stdout, prints a line starting with `todo: ` on stderr, and leaves the file byte-for-byte unchanged",
         "`node bin/todo.js done abc`, `node bin/todo.js done 0`, `node bin/todo.js done` and `node bin/todo.js done 1 2` each exit 1, print nothing on stdout and print a line starting with `todo: ` on stderr"
       ],
-      "status": "todo",
+      "status": "in_progress",
       "pr": null,
       "context": {
         "business": "G-3, G-4, FL-2: finishing work is the main loop of a todo list, and `--all` lets the user see what they finished.",
