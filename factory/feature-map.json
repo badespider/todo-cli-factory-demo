@@ -1,4 +1,172 @@
 {
   "version": 1,
-  "features": []
+  "features": [
+    {
+      "id": "F1",
+      "title": "Command entry point and error reporting",
+      "description": "`node bin/todo.js` runs `main` from `src/cli.js`, which rejects a missing or unknown command with a `todo: ` message on stderr and exit 1, the one error path every later command shares.",
+      "depends_on": [],
+      "acceptance_criteria": [
+        "`node bin/todo.js` with no arguments exits 1, prints nothing on stdout, and prints one line starting with `todo: ` on stderr",
+        "`node bin/todo.js frob` exits 1, prints nothing on stdout, and prints one line starting with `todo: ` on stderr",
+        "`main([\"frob\"], {}, io)` from `src/cli.js`, with `io` = `{stdout(line), stderr(line)}` capturing lines, returns 1, writes no stdout line, writes one stderr line starting with `todo: `, and does not call `process.exit`"
+      ],
+      "status": "todo",
+      "pr": null,
+      "context": {
+        "business": "G-7, FL-5: every command shares one predictable error path, so it comes first and later commands only add handlers.",
+        "design": "Layout per D-layout (thin `bin/todo.js` shebang entry that sets `process.exitCode` from `main`); `main(argv, env, io)` per D-cli-main; `TodoError` and the `todo: <message>` format, with unexpected exceptions reported the same way and never as a stack trace, per D-errors; strict command surface per D-commands. Tests per D-tests.",
+        "code_refs": []
+      },
+      "provides": {
+        "F2": "TodoError (exported from src/cli.js or src/errors.js)",
+        "F3": "main(argv, env, io) command dispatch in src/cli.js and the bin/todo.js entry"
+      },
+      "files": [
+        "bin/todo.js",
+        "src/cli.js",
+        "src/errors.js"
+      ]
+    },
+    {
+      "id": "F2",
+      "title": "JSON todo file store",
+      "description": "`src/store.js` loads and saves the list from `TODO_FILE` (or `./todo.json`), treating a missing file as empty, rejecting corrupt files, and writing atomically.",
+      "depends_on": [
+        "F1"
+      ],
+      "acceptance_criteria": [
+        "`load(env)` from `src/store.js`, with `env.TODO_FILE` naming a file that does not exist, returns `{nextId: 1, items: []}` and creates no file",
+        "`save(env, state)` then `load(env)` with the same `env.TODO_FILE` returns a deep-equal state, and the file content equals `JSON.stringify(state, null, 2) + \"\\n\"`",
+        "`resolvePath({})` and `resolvePath({TODO_FILE: \"\"})` from `src/store.js` both return `path.resolve(\"todo.json\")`, and `resolvePath({TODO_FILE: \"x/w.json\"})` returns `path.resolve(\"x/w.json\")`",
+        "`load(env)` on a file containing `not json` throws a `TodoError` whose message includes the file path, and the file content is unchanged",
+        "`load(env)` on a file containing `[]` (valid JSON, wrong shape) throws a `TodoError` whose message includes the file path"
+      ],
+      "status": "todo",
+      "pr": null,
+      "context": {
+        "business": "G-6: items persist between runs; every command after F1 reads or writes this file, so storage is shared.",
+        "design": "File shape, path resolution, missing-file and temp-file-then-rename rules per D-json-store; corrupt or wrong-shape files are `TodoError`s naming the path per D-errors (TodoError from F1). Standard library only per D-runtime. Unit tests use a fresh mkdtemp directory per D-tests.",
+        "code_refs": []
+      },
+      "provides": {
+        "F3": "load(env), save(env, state) and resolvePath(env) in src/store.js; state is {nextId, items: [{id, text, done}]}"
+      },
+      "files": [
+        "src/store.js"
+      ]
+    },
+    {
+      "id": "F3",
+      "title": "Add an item",
+      "description": "A user adds an item with `node bin/todo.js add <text...>`; it is stored as open and its id is printed.",
+      "depends_on": [
+        "F1",
+        "F2"
+      ],
+      "acceptance_criteria": [
+        "With `TODO_FILE` naming a missing file in a fresh temp directory, `node bin/todo.js add buy milk` exits 0, prints exactly `1\\n` on stdout, and the file then parses to `{\"nextId\": 2, \"items\": [{\"id\": 1, \"text\": \"buy milk\", \"done\": false}]}`",
+        "A second `node bin/todo.js add eggs` against the same `TODO_FILE` exits 0 and prints exactly `2\\n`",
+        "`node bin/todo.js add` with no text, and `node bin/todo.js add \"   \"`, each exit 1, print nothing on stdout, print a line starting with `todo: ` on stderr, and leave the file unchanged (still absent if it was absent)",
+        "`addItem(state, text)` from `src/todos.js` returns a state with a new open item whose id is the old `nextId`, and with `nextId` one higher",
+        "With `TODO_FILE` set to `<tmpA>/work.json` and the working directory `<tmpB>`, `node <repo>/bin/todo.js add x` writes the item to `<tmpA>/work.json` and creates no `<tmpB>/todo.json`"
+      ],
+      "status": "todo",
+      "pr": null,
+      "context": {
+        "business": "G-1, FL-1 step 1 and FL-4: capturing an item is the first thing a user does, and TODO_FILE lets them keep a list per project.",
+        "design": "Arguments after `add` are joined with single spaces and empty-after-trim text is an error per D-commands; output is just the id per D-output; ids come from `nextId` per D-json-store; pure list logic lives in `src/todos.js` per D-layout; errors per D-errors. E2E tests spawn `process.execPath bin/todo.js` per D-tests.",
+        "code_refs": []
+      },
+      "provides": {
+        "F4": "the add command, so list tests can create items, and addItem(state, text) in src/todos.js"
+      },
+      "files": [
+        "src/cli.js",
+        "src/todos.js"
+      ]
+    },
+    {
+      "id": "F4",
+      "title": "List open items",
+      "description": "A user sees open items with `node bin/todo.js list`, one `<id> <text>` line each, in ascending id order.",
+      "depends_on": [
+        "F3"
+      ],
+      "acceptance_criteria": [
+        "After `node bin/todo.js add buy milk` and `node bin/todo.js add eggs` against one `TODO_FILE`, `node bin/todo.js list` exits 0 and prints exactly `1 buy milk\\n2 eggs\\n`",
+        "With `TODO_FILE` naming a missing file, `node bin/todo.js list` exits 0, prints nothing, and the file still does not exist",
+        "`node bin/todo.js list extra` and `node bin/todo.js list --bogus` each exit 1, print nothing on stdout and print a line starting with `todo: ` on stderr",
+        "With `TODO_FILE` naming a file containing `not json`, `node bin/todo.js list` exits 1, prints nothing on stdout, prints a `todo: ` line on stderr that contains the file path, and leaves the file unchanged"
+      ],
+      "status": "todo",
+      "pr": null,
+      "context": {
+        "business": "G-2, FL-1 step 2 and FL-6: seeing what is still open is the reason to keep the list.",
+        "design": "Output format and ascending order per D-output; extra arguments and unknown flags are errors per D-commands; read-only commands never create the file per D-json-store; errors per D-errors. Listing logic as a pure function in `src/todos.js` per D-layout.",
+        "code_refs": []
+      },
+      "provides": {
+        "F5": "the list command and a pure listing function in src/todos.js that F5 extends with --all"
+      },
+      "files": [
+        "src/cli.js",
+        "src/todos.js"
+      ]
+    },
+    {
+      "id": "F5",
+      "title": "Mark an item done and list all items",
+      "description": "A user marks an item done with `node bin/todo.js done <id>`; it leaves `list` and shows as `<id> [x] <text>` in `list --all`.",
+      "depends_on": [
+        "F4"
+      ],
+      "acceptance_criteria": [
+        "After adding `a` (id 1) and `b` (id 2), `node bin/todo.js done 1` exits 0 and prints nothing, and `node bin/todo.js list` then prints exactly `2 b\\n`",
+        "In that state, `node bin/todo.js list --all` exits 0 and prints exactly `1 [x] a\\n2 b\\n`",
+        "Running `node bin/todo.js done 1` a second time exits 0, prints nothing, and `list --all` still prints `1 [x] a` first",
+        "`node bin/todo.js done 99` (no such id) exits 1, prints nothing on stdout, prints a line starting with `todo: ` on stderr, and leaves the file byte-for-byte unchanged",
+        "`node bin/todo.js done abc`, `node bin/todo.js done 0`, `node bin/todo.js done` and `node bin/todo.js done 1 2` each exit 1, print nothing on stdout and print a line starting with `todo: ` on stderr"
+      ],
+      "status": "todo",
+      "pr": null,
+      "context": {
+        "business": "G-3, G-4, FL-2: finishing work is the main loop of a todo list, and `--all` lets the user see what they finished.",
+        "design": "Id syntax `/^[1-9][0-9]*$/` and argument rules per D-commands; `[x]` after the id and silent success per D-output; re-marking is a no-op and an unknown id is an error per D-errors; the file is rewritten atomically per D-json-store. Extends F4's list command with `--all`.",
+        "code_refs": []
+      },
+      "provides": {
+        "F6": "the done command, list --all output, and id parsing and validation in src/cli.js that rm reuses"
+      },
+      "files": [
+        "src/cli.js",
+        "src/todos.js"
+      ]
+    },
+    {
+      "id": "F6",
+      "title": "Delete an item",
+      "description": "A user deletes an item with `node bin/todo.js rm <id>`; it appears in no listing and its id is never reused.",
+      "depends_on": [
+        "F5"
+      ],
+      "acceptance_criteria": [
+        "After adding `a` (id 1) and `b` (id 2), `node bin/todo.js rm 2` exits 0 and prints nothing, and `node bin/todo.js list --all` then prints exactly `1 a\\n`",
+        "After that `rm 2`, `node bin/todo.js add c` exits 0 and prints exactly `3\\n`",
+        "`node bin/todo.js rm 99` (no such id) exits 1, prints nothing on stdout, prints a line starting with `todo: ` on stderr, and leaves the file byte-for-byte unchanged",
+        "`node bin/todo.js rm abc`, `node bin/todo.js rm` and `node bin/todo.js rm 1 2` each exit 1, print nothing on stdout and print a line starting with `todo: ` on stderr"
+      ],
+      "status": "todo",
+      "pr": null,
+      "context": {
+        "business": "G-5, FL-3: removing items keeps the list relevant.",
+        "design": "Ids are never reused because `nextId` is kept per D-json-store; id and argument rules per D-commands, reusing F5's id parsing; silent success per D-output; errors per D-errors.",
+        "code_refs": []
+      },
+      "files": [
+        "src/cli.js",
+        "src/todos.js"
+      ]
+    }
+  ]
 }
