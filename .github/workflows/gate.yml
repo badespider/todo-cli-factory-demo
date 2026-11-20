@@ -164,8 +164,9 @@ jobs:
 
   audit-merge:
     name: audit-merge
-    # A push that creates the branch has no "before" commit, so there is nothing to audit.
-    if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+    # A push that creates the branch runs this job too: "Find where the audit starts"
+    # passes it, so later audits can start from it (a skipped job would not count).
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       # audit-merge.sh reads the check runs and workflow runs on a merged PR's head.
@@ -189,6 +190,12 @@ jobs:
       # skipped one does not count): normally the previous tip itself; after a skipped
       # push, the commit before it, so the skipped commits are audited now, by a judge
       # that was audited itself. A commit without this workflow file was never audited.
+      # A push that creates the branch has no "before" commit and nothing before it to
+      # audit. While the factory is stopped (the install push of a new repository) it
+      # passes with a notice, and this job's success makes it where the next audit starts.
+      # While the factory runs, the base branch was deleted and pushed again, which branch
+      # protection forbids: it fails for a person to look at, and, failed, is still where
+      # the next audit starts.
       - name: Find where the audit starts
         id: start
         env:
@@ -197,6 +204,15 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BEFORE: ${{ github.event.before }}
         run: |
+          if [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            echo "created=true" >>"$GITHUB_OUTPUT"
+            if [ "$FACTORY_ENABLED" = true ]; then
+              echo "::error::this push created the base branch while the factory runs: nothing before it can be audited; check its commits by hand"
+              exit 1
+            fi
+            echo "::notice::this push created the base branch: nothing before it to audit; later audits start here"
+            exit 0
+          fi
           start=$BEFORE
           max=50
           hops=0
@@ -231,6 +247,7 @@ jobs:
           echo "sha=$start" >>"$GITHUB_OUTPUT"
       # The auditor comes from where the audit starts, so a push can't change its own audit.
       - name: Check out the judging copy (where the audit starts)
+        if: steps.start.outputs.created != 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.start.outputs.sha }}
@@ -250,6 +267,7 @@ jobs:
       # them one by one would not restore the old history anyway. While the factory runs,
       # such a push is audited without --act and always fails: a human looks at it.
       - name: Audit the merge (the judging copy's scripts)
+        if: steps.start.outputs.created != 'true'
         env:
           CI: 'true'
           FACTORY_ENABLED: ${{ vars.FACTORY_ENABLED }}
