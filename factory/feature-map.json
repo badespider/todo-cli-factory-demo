@@ -46,7 +46,7 @@
         "`load(env)` on a file containing `not json` throws a `TodoError` whose message includes the file path, and the file content is unchanged",
         "`load(env)` on a file containing `[]` (valid JSON, wrong shape) throws a `TodoError` whose message includes the file path"
       ],
-      "status": "todo",
+      "status": "in_progress",
       "pr": null,
       "context": {
         "business": "G-6: items persist between runs; every command after F1 reads or writes this file, so storage is shared.",
