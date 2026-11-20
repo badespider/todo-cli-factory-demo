@@ -171,7 +171,7 @@
         "`node bin/todo.js rm 99` (no such id) exits 1, prints nothing on stdout, prints a line starting with `todo: ` on stderr, and leaves the file byte-for-byte unchanged",
         "`node bin/todo.js rm abc`, `node bin/todo.js rm` and `node bin/todo.js rm 1 2` each exit 1, print nothing on stdout and print a line starting with `todo: ` on stderr"
       ],
-      "status": "todo",
+      "status": "in_progress",
       "pr": null,
       "context": {
         "business": "G-5, FL-3: removing items keeps the list relevant.",
