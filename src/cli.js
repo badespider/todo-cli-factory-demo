@@ -25,6 +25,10 @@ commands.add = (args, env, io) => {
     throw new TodoError('missing item text');
   }
   const state = store.load(env);
+  // The new nextId must stay an exact integer, or the file we write would fail its own check.
+  if (!Number.isSafeInteger(state.nextId + 1)) {
+    throw new TodoError(`${store.resolvePath(env)} has no ids left (nextId ${state.nextId})`);
+  }
   store.save(env, todos.addItem(state, text));
   io.stdout(String(state.nextId));
 };

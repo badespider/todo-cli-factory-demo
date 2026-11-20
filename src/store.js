@@ -10,8 +10,9 @@ function resolvePath(env) {
   return path.resolve(file);
 }
 
+// Ids and nextId must be exact JavaScript integers: past Number.MAX_SAFE_INTEGER, n + 1 === n.
 function isPositiveInt(n) {
-  return Number.isInteger(n) && n >= 1;
+  return Number.isSafeInteger(n) && n >= 1;
 }
 
 function isValidState(state) {
