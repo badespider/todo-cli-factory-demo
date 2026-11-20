@@ -1,0 +1,7 @@
+/scripts/** text=auto eol=lf
+/skills/** text=auto eol=lf
+/templates/** text=auto eol=lf
+/factory/** text=auto eol=lf
+/.github/workflows/** text=auto eol=lf
+/AGENTS.md text=auto eol=lf
+/CLAUDE.md text=auto eol=lf

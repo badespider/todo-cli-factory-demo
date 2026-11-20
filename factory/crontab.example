@@ -1,0 +1,40 @@
+# software-factory: the local schedule, the crontab equivalent of the
+# standing-agents and build workflows. Every line is commented out: copy the ones you
+# want into `crontab -e`, with /path/to/project replaced by a clone of the project.
+#
+# - Use a clone that does nothing else and stays on the base branch (main below; use
+#   yours). run-agent.sh judges with the scripts and factory.config.yaml of the checkout
+#   it runs from, so each line fast-forwards it first and starts nothing if that fails:
+#   a stale checkout, or one on another branch, would run old or unapproved rules.
+# - Local runs use your own gh login (`gh auth status`) and your git credentials, not a
+#   CI secret. If they can push workflow files (the workflow scope), the "agents can't
+#   change .github/workflows" barrier does not hold for these runs; for unattended runs,
+#   use a fine-grained token without the Workflows permission.
+# - FACTORY_HARNESS_CMD, when set, overrides harness_cmd from factory.config.yaml for
+#   these runs (for example a harness command with guarded local permissions instead of
+#   the CI bypass flags).
+# - The stop switch still applies: nothing starts unless the repo variable
+#   FACTORY_ENABLED is "true". Leave FACTORY_CI_AGENTS off while this schedule is in
+#   use, so CI agents never race these runs (run-agent.sh's role locks stop two runs of
+#   one standing role either way).
+# - Logs are appended under .factory/ (gitignored, never state). Each run also writes
+#   .factory/logs/<agent id>.log.
+# - cron starts with a minimal PATH: give it the directories that hold bash, git, gh,
+#   jq and the harness binary.
+#
+# SHELL=/bin/bash
+# PATH=/usr/local/bin:/usr/bin:/bin
+#
+# Standing roles (bug-fix, perf, babysit, ship): each one that is due, at minute 17 of
+# every hour (roles.<role>.every decides what is due).
+# 17 * * * * cd /path/to/project && mkdir -p .factory && { git pull -q --ff-only origin main && bash scripts/run-agent.sh --due; } >>.factory/cron-due.log 2>&1
+#
+# The build chain (intake, plan-features or the next ready feature), every 30 minutes.
+# Two build runs can overlap: each claims a different ready feature, or finds nothing.
+# */30 * * * * cd /path/to/project && mkdir -p .factory && { git pull -q --ff-only origin main && bash scripts/run-agent.sh --role build; } >>.factory/cron-build.log 2>&1
+#
+# The same, with another harness command for local runs only:
+# 17 * * * * cd /path/to/project && mkdir -p .factory && { git pull -q --ff-only origin main && FACTORY_HARNESS_CMD='my-harness --flags' bash scripts/run-agent.sh --due; } >>.factory/cron-due.log 2>&1
+#
+# Windows: Task Scheduler can run the same commands through Git Bash, e.g.
+#   "C:\Program Files\Git\bin\bash.exe" -lc "cd /c/path/to/project && mkdir -p .factory && { git pull -q --ff-only origin main && bash scripts/run-agent.sh --due; } >>.factory/cron-due.log 2>&1"

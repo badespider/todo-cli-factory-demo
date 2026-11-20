@@ -1,0 +1,65 @@
+# software-factory configuration (starter copy written by scripts/install.sh).
+# Format: the YAML subset in docs/CONTRACTS.md: block style, 2-space indents, no tabs.
+# "none" means deliberately absent. Editing this file is a rules-change: it needs
+# an operator "approve <sha>" comment before ship will merge it.
+
+# The one value that selects the harness. run-agent.sh splits it on whitespace and
+# appends the prompt as the last argument. FACTORY_HARNESS_CMD overrides it locally.
+harness_cmd: claude -p --dangerously-skip-permissions --permission-prompts none
+# CI only: installs the harness when its binary is missing on the runner.
+harness_install: none
+# Optional second harness for verify panels; none = reuse harness_cmd.
+review_harness_cmd: none
+base_branch: main
+
+project:
+  # Runs in every fresh tree before checks (e.g. npm ci).
+  setup: none
+
+gate:
+  # "none" is accepted for test only while no feature is done (bootstrap).
+  test: none
+  # Runs selected test files; {files} is replaced by their paths.
+  test_files: none
+  test_globs:
+    - test/**
+    - tests/**
+  lint: none
+  typecheck: none
+  # Feature PRs must start with a tests-only commit that fails, then pass at head.
+  require_red_green: true
+
+roles:
+  bug-fix:
+    every: 4h
+    hunt_max_issues: 2
+  perf:
+    every: 24h
+    # Committed benchmark command; perf work is skipped while this is none.
+    bench: none
+  babysit:
+    every: 1h
+  ship:
+    every: 1h
+
+limits:
+  fix_attempts: 3
+  open_agent_issues: 10
+  open_agent_prs: 5
+  agent_timeout_minutes: 45
+  repro_timeout_seconds: 120
+
+claims:
+  ttl_hours: 6
+
+build:
+  parallel: 1
+
+merge:
+  method: squash
+  audit_days: 14
+  # Project files whose changes need operator approval (e.g. package.json).
+  protected_paths: none
+  # GitHub logins whose "approve <sha>" comments count; none = any OWNER, MEMBER or
+  # COLLABORATOR commenter (an agent using your account included). Set your login.
+  approvers: none

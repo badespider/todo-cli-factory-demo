@@ -1,0 +1,228 @@
+# software-factory: the build chain (PLAN 4.8).
+#
+# Starts by hand (inputs idea and dry_run) or on a push to the base branch that changes
+# the spec or the feature map. Each run calls `run-agent.sh --role build`, which picks the
+# stage from the repo state: intake (no spec), plan-features (spec, empty map) or
+# build-feature (the next ready feature). build.parallel in factory.config.yaml sets how
+# many build jobs run side by side (at most 5); each claims a different ready feature.
+#
+# Agents run only while the repo variables FACTORY_ENABLED and FACTORY_CI_AGENTS are both
+# "true" (a dry run is allowed either way; run-agent.sh still checks both switches).
+#
+# Credentials: the agent job checks out with the FACTORY_TOKEN secret (a fine-grained PAT
+# with contents, pull requests and issues read/write and variables read, and NO workflows
+# permission), so its pushes trigger the gate, and logs gh in with it, because
+# run-agent.sh removes tokens from the harness's environment. FACTORY_AGENT_ENV holds the
+# harness's own KEY=VALUE settings; run-agent.sh exports them for the harness alone.
+# Event text (the idea) reaches the shell only through env:.
+#
+# Base branch: "main" below. If factory.config.yaml sets another base_branch, change
+# every line marked "# base_branch" in the three factory workflows.
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      idea:
+        description: Plain-language idea for intake (used only while there is no spec)
+        type: string
+        required: false
+        default: ''
+      dry_run:
+        description: Print the picked task and the harness command; launch nothing
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches: [main] # base_branch
+    paths:
+      - factory/spec.md
+      - factory/feature-map.json
+
+# Nothing by default; each job asks for exactly what it uses.
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  slots:
+    name: slots
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      slots: ${{ steps.slots.outputs.slots }}
+    steps:
+      - name: Check out the base branch
+        uses: actions/checkout@v4
+        with:
+          ref: main # base_branch
+          persist-credentials: false
+      - name: Read build.parallel
+        id: slots
+        run: |
+          if ! n=$(bash scripts/config.sh get build.parallel 1); then
+            echo "::warning::scripts/config.sh could not read build.parallel; using 1 build slot"
+            n=1
+          fi
+          n=$(printf '%s' "$n" | sed 's/^0*//')
+          case "$n" in
+            [1-5]) ;;
+            '' | *[!0-9]*)
+              echo "::warning::build.parallel is not a positive whole number; using 1 build slot"
+              n=1
+              ;;
+            *)
+              echo "::notice::build.parallel is capped at 5 build slots"
+              n=5
+              ;;
+          esac
+          list=1
+          i=1
+          while [ "$i" -lt "$n" ]; do
+            i=$((i + 1))
+            list="$list,$i"
+          done
+          echo "slots=[$list]" >>"$GITHUB_OUTPUT"
+
+  build:
+    name: build
+    needs: slots
+    if: (vars.FACTORY_ENABLED == 'true' && vars.FACTORY_CI_AGENTS == 'true') || inputs.dry_run
+    runs-on: ubuntu-latest
+    # Keep it at least limits.agent_timeout_minutes + 30 (the claim, PR and exit-trap work
+    # around the harness): a job Actions kills at this limit never runs the exit trap.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: ${{ fromJSON(needs.slots.outputs.slots) }}
+    concurrency:
+      group: build-slot-${{ matrix.slot }}
+      cancel-in-progress: false
+    # github.token is used only by a dry run without the FACTORY_TOKEN secret, to read.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # The factory always runs from the base branch's scripts, whatever ref was dispatched.
+      - name: Check out the base branch with the factory token
+        uses: actions/checkout@v4
+        with:
+          ref: main # base_branch
+          fetch-depth: 0
+          token: ${{ secrets.FACTORY_TOKEN || github.token }}
+      - name: Log gh in with the factory token
+        env:
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          FALLBACK_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ -n "$FACTORY_TOKEN" ]; then
+            printf '%s\n' "$FACTORY_TOKEN" | gh auth login --with-token
+          elif [ "$DRY_RUN" = true ]; then
+            echo "::warning::the FACTORY_TOKEN secret is not set; this dry run reads with the read-only github.token"
+            printf '%s\n' "$FALLBACK_TOKEN" | gh auth login --with-token
+          else
+            echo "::error::the FACTORY_TOKEN secret is not set (fine-grained PAT: contents, pull requests and issues read/write, variables read, no workflows)"
+            exit 1
+          fi
+      # GitHub masks a secret in the log as a whole and line by line, not each VALUE of
+      # its KEY=VALUE lines: a harness printing one key would show it. Mask each value of
+      # 8 or more characters too.
+      - name: Mask the agent environment's values
+        env:
+          FACTORY_AGENT_ENV: ${{ secrets.FACTORY_AGENT_ENV }}
+        run: |
+          while IFS= read -r line || [ -n "$line" ]; do
+            line=${line%$'\r'}
+            case "$line" in [A-Za-z_]*=*) ;; *) continue ;; esac
+            value=${line#*=}
+            [ "${#value}" -ge 8 ] || continue
+            printf '::add-mask::%s\n' "${value//%/%25}"
+          done <<<"$FACTORY_AGENT_ENV"
+      - name: Run the build agent
+        env:
+          CI: 'true'
+          FACTORY_ENABLED: ${{ vars.FACTORY_ENABLED }}
+          FACTORY_CI_AGENTS: ${{ vars.FACTORY_CI_AGENTS }}
+          FACTORY_AGENT_ENV: ${{ secrets.FACTORY_AGENT_ENV }}
+          IDEA: ${{ inputs.idea }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SLOT: ${{ matrix.slot }}
+        run: |
+          args=(--role build)
+          if [ -n "$IDEA" ]; then args+=(--idea "$IDEA"); fi
+          if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
+          status=0
+          bash scripts/run-agent.sh "${args[@]}" || status=$?
+          # Exit 3: another run won the claim (a parallel slot or a local run). Not a failure.
+          if [ "$status" -eq 3 ]; then
+            echo "::notice::build slot $SLOT: the claim went to another run"
+            status=0
+          fi
+          exit "$status"
+      # The logs hold the harness's output, and anyone who can read this repository (on a
+      # public repository, anyone signed in to GitHub) can download them for 7 days. The
+      # step log above is masked; these files are not, so the same values are removed
+      # from them first: FACTORY_TOKEN (also in the base64 form a git config holds it in)
+      # and each FACTORY_AGENT_ENV value of 8 or more characters. A secret printed in any
+      # other form (decoded, split, re-encoded) is not caught. upload-artifact follows
+      # symbolic links, which would upload the file a link points to (gh's login, the git
+      # config) unredacted: a linked .factory or logs folder stops the upload, and links or
+      # other special files inside the logs are deleted. Nothing is uploaded unless this
+      # step succeeded.
+      - name: Redact secrets from the agent logs
+        id: redact
+        if: always()
+        env:
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          FACTORY_AGENT_ENV: ${{ secrets.FACTORY_AGENT_ENV }}
+        run: |
+          if [ -L .factory ] || [ -L .factory/logs ]; then
+            echo "::error::.factory or .factory/logs is a symbolic link; the agent logs are not uploaded"
+            exit 1
+          fi
+          [ -d .factory/logs ] || exit 0
+          find .factory/logs -mindepth 1 ! -type f ! -type d -exec rm -f -- {} +
+          values=""
+          add() { if [ "${#1}" -ge 8 ]; then values="$values$1"$'\n'; fi; }
+          if [ -n "$FACTORY_TOKEN" ]; then
+            add "$FACTORY_TOKEN"
+            add "$(printf 'x-access-token:%s' "$FACTORY_TOKEN" | base64 | tr -d '\n')"
+          fi
+          while IFS= read -r line || [ -n "$line" ]; do
+            line=${line%$'\r'}
+            case "$line" in [A-Za-z_]*=*) add "${line#*=}" ;; esac
+          done <<<"$FACTORY_AGENT_ENV"
+          [ -n "$values" ] || exit 0
+          find .factory/logs -type f ! -name '*.redacting' -print0 | while IFS= read -r -d '' f; do
+            REDACT=$values LC_ALL=C awk '
+              BEGIN { n = split(ENVIRON["REDACT"], v, "\n") }
+              {
+                s = $0
+                for (k = 1; k <= n; k++) {
+                  if (v[k] == "") continue
+                  out = ""
+                  while ((i = index(s, v[k])) > 0) {
+                    out = out substr(s, 1, i - 1) "***"
+                    s = substr(s, i + length(v[k]))
+                  }
+                  s = out s
+                }
+                print s
+              }' "$f" >"$f.redacting"
+            mv -f "$f.redacting" "$f"
+          done
+      - name: Upload the agent logs
+        if: always() && steps.redact.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-slot-${{ matrix.slot }}-attempt-${{ github.run_attempt }}
+          path: .factory/logs
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: ignore

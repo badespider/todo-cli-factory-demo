@@ -1,0 +1,280 @@
+# software-factory: the judging workflow (PLAN 4.5-4.6, docs/CONTRACTS.md).
+#
+# Jobs and the check runs ship.sh reads (by these exact names, from the workflow "gate"):
+#   gate         the base branch's gate.sh and config judge the PR head
+#   gate-self    the PR's own gate.sh and config judge the PR head (needed for rules changes)
+#   verify-fix   the base branch's verify-fix.sh; "not a bug fix" PRs pass at once
+#   audit-merge  on every push to the base branch: catches merges that skipped ship.sh
+#                (a push GitHub ran no workflow for is audited with the next one)
+#
+# Trust rules for every judging job:
+#   - the judging scripts come from a checkout of the base branch (judge/), never from
+#     the PR's copy;
+#   - the PR is checked out at its head commit (pull_request.head.sha), never at
+#     GitHub's synthetic merge commit, with full history (fetch-depth: 0);
+#   - the only credential is the built-in, read-only github.token: no write token and
+#     no repository secret is present while PR code runs;
+#   - event text (titles, branch names) reaches the shell only through env:, never as
+#     an expression inside run:;
+#   - a step that runs PR code is the job's last step (it could write the runner's
+#     GITHUB_ENV or GITHUB_PATH files, which only change later steps), and its script
+#     is one brace group, so bash has parsed all of it before any PR code runs (the
+#     step's script file sits where that code could rewrite it).
+#
+# Base branch: "main" below. If factory.config.yaml sets another base_branch, change
+# every line marked "# base_branch" in the three factory workflows.
+name: gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main] # base_branch
+  push:
+    branches: [main] # base_branch
+
+# Nothing by default; each job asks for exactly what it uses.
+permissions: {}
+
+# One run per PR (a new push cancels the old run) and one per pushed commit (never
+# cancelled: every push to the base branch is audited).
+concurrency:
+  group: gate-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('push-{0}', github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  gate:
+    name: gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Check out the judging copy (base branch)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: judge
+          persist-credentials: false
+      - name: Check out the PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Gate (base branch's scripts and config)
+        run: |
+          {
+            BASE=$(git -C pr merge-base HEAD "origin/$BASE_REF")
+            status=0
+            bash judge/scripts/gate.sh --tree pr --config judge/factory.config.yaml \
+              --base "$BASE" --branch "$HEAD_REF" --head "$HEAD_SHA" |
+              tee "$RUNNER_TEMP/gate-steps.txt" || status=$?
+            {
+              printf '### gate: exit %s\n\n```\n' "$status"
+              cat "$RUNNER_TEMP/gate-steps.txt"
+              printf '```\n'
+            } >>"$GITHUB_STEP_SUMMARY"
+            exit "$status"
+          }
+
+  gate-self:
+    name: gate-self
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Check out the PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Gate (the PR's own scripts and config)
+        run: |
+          {
+            cd pr || exit 2
+            if [ ! -f scripts/gate.sh ]; then
+              echo "gate-self: this PR has no scripts/gate.sh, so it cannot judge itself" >&2
+              exit 1
+            fi
+            BASE=$(git merge-base HEAD "origin/$BASE_REF")
+            status=0
+            bash scripts/gate.sh --tree . --base "$BASE" --branch "$HEAD_REF" --head "$HEAD_SHA" |
+              tee "$RUNNER_TEMP/gate-self-steps.txt" || status=$?
+            {
+              printf '### gate-self: exit %s\n\n```\n' "$status"
+              cat "$RUNNER_TEMP/gate-self-steps.txt"
+              printf '```\n'
+            } >>"$GITHUB_STEP_SUMMARY"
+            exit "$status"
+          }
+
+  verify-fix:
+    name: verify-fix
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Check out the judging copy (base branch)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: judge
+          persist-credentials: false
+      # verify-fix.sh fetches the PR's head and base branches itself, so this checkout
+      # keeps the read-only github.token. The repro runs under env -i (no token).
+      - name: Check out the PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Verify the fix (base branch's script and config)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            cd pr || exit 2
+            status=0
+            bash ../judge/scripts/verify-fix.sh --pr "$PR" --tree . --config ../judge/factory.config.yaml ||
+              status=$?
+            exit "$status"
+          }
+
+  audit-merge:
+    name: audit-merge
+    # A push that creates the branch has no "before" commit, so there is nothing to audit.
+    if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+    runs-on: ubuntu-latest
+    permissions:
+      # audit-merge.sh reads the check runs and workflow runs on a merged PR's head.
+      actions: read
+      checks: read
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Check out the pushed commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: true
+      # GitHub runs no workflow for a push whose head commit message holds "[skip ci]",
+      # "[ci skip]", "[no ci]", "[skip actions]" or "[actions skip]", so such a push was
+      # never audited. The audit starts at the newest first-parent ancestor of the
+      # previous tip on which a push run of this workflow ran audit-merge (a cancelled or
+      # skipped one does not count): normally the previous tip itself; after a skipped
+      # push, the commit before it, so the skipped commits are audited now, by a judge
+      # that was audited itself. A commit without this workflow file was never audited.
+      - name: Find where the audit starts
+        id: start
+        env:
+          FACTORY_ENABLED: ${{ vars.FACTORY_ENABLED }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          start=$BEFORE
+          max=50
+          hops=0
+          # While the factory is stopped, audit-merge.sh audits nothing anyway.
+          while [ "$FACTORY_ENABLED" = true ]; do
+            suites=$(gh api "repos/$GH_REPO/commits/$start/check-runs?check_name=audit-merge&filter=all&per_page=100" \
+              --jq '.check_runs[] | select(.app.slug == "github-actions")
+                | select(.conclusion == null or .conclusion == "success" or .conclusion == "failure" or .conclusion == "timed_out")
+                | .check_suite.id')
+            audited=0
+            for suite in $suites; do
+              runs=$(gh api "repos/$GH_REPO/actions/runs?check_suite_id=$suite" \
+                --jq '[.workflow_runs[] | select(.event == "push" and ((.path // "") | startswith(".github/workflows/gate.yml")))] | length')
+              if [ "$runs" -gt 0 ]; then
+                audited=1
+                break
+              fi
+            done
+            [ "$audited" = 0 ] || break
+            git -C repo cat-file -e "$start:.github/workflows/gate.yml" 2>/dev/null || break
+            parent=$(git -C repo rev-parse -q --verify "$start^1") || break
+            hops=$((hops + 1))
+            if [ "$hops" -gt "$max" ]; then
+              echo "::error::the $max first-parent commits up to $BEFORE were never audited; audit them by hand"
+              exit 1
+            fi
+            start=$parent
+          done
+          if [ "$start" != "$BEFORE" ]; then
+            echo "::warning::GitHub ran no audit for the commits up to $BEFORE (a skipped push); this audit starts at $start"
+          fi
+          echo "sha=$start" >>"$GITHUB_OUTPUT"
+      # The auditor comes from where the audit starts, so a push can't change its own audit.
+      - name: Check out the judging copy (where the audit starts)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.start.outputs.sha }}
+          path: judge
+          persist-credentials: false
+      # audit-merge.sh runs no project code. With --act it pushes a revert branch and opens
+      # a revert PR and a needs-human issue using github.token. Pushes made with
+      # github.token do not trigger workflows, so that revert PR gets no gate run: it is
+      # for a human to review and merge (or close), never for the ship role; closing and
+      # reopening it starts the gate. Its merge commit is audited like any other, so the
+      # human adds a "Factory-Operator: <reason>" trailer in the merge dialog, or the
+      # revert is reported in turn. Opening a PR with github.token needs the repository
+      # setting "Allow GitHub Actions to create and approve pull requests" (Settings >
+      # Actions > General).
+      # A force push rewrote the base branch's history: every rewritten commit is new by its
+      # sha, so --act would open a revert PR and an issue for each of them, and reverting
+      # them one by one would not restore the old history anyway. While the factory runs,
+      # such a push is audited without --act and always fails: a human looks at it.
+      - name: Audit the merge (the judging copy's scripts)
+        env:
+          CI: 'true'
+          FACTORY_ENABLED: ${{ vars.FACTORY_ENABLED }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          START: ${{ steps.start.outputs.sha }}
+          AFTER: ${{ github.sha }}
+          FORCED: ${{ github.event.forced }}
+        run: |
+          # The push that installs the factory has no auditor before it; the factory is
+          # stopped then (bootstrap leaves FACTORY_ENABLED off), and audit-merge.sh would
+          # say "factory stopped" too. Once it runs, a missing auditor is a failure.
+          if [ ! -f judge/scripts/audit-merge.sh ]; then
+            if [ "$FACTORY_ENABLED" != true ]; then
+              echo "::notice::factory stopped, and $START (where the audit starts) has no audit-merge.sh: nothing to audit"
+              exit 0
+            fi
+            echo "::error::$START (where the audit starts) has no audit-merge.sh, so this push cannot be audited"
+            exit 1
+          fi
+          cd repo || exit 2
+          if [ "$FORCED" = true ] && [ "$FACTORY_ENABLED" = true ]; then
+            status=0
+            bash ../judge/scripts/audit-merge.sh --before "$START" --after "$AFTER" || status=$?
+            echo "::error::a force push rewrote the history (audit-merge.sh exit $status); it was audited without --act (no revert PRs or issues): check it by hand"
+            exit 1
+          fi
+          bash ../judge/scripts/audit-merge.sh --before "$START" --after "$AFTER" --act

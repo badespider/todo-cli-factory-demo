@@ -1,0 +1,228 @@
+# software-factory: the standing roles (PLAN 3, 4.7) and the issue labeler.
+#
+# Every hour at minute 17 (GitHub delays runs scheduled on the hour) each standing role
+# (bug-fix, perf, babysit, ship) runs `run-agent.sh --role ROLE --due`: it starts only when
+# roles.<role>.every has passed since its last start (read from the factory:log issue).
+# A dispatch can run one role now, or every role that is due ("due"), and can be a dry run.
+# One run per role at a time: an Actions concurrency group here, plus run-agent.sh's role
+# lock (branch factory/lock/role-<role>) shared with local crontab runs.
+#
+# Agents run only while the repo variables FACTORY_ENABLED and FACTORY_CI_AGENTS are both
+# "true" (a dry run is allowed either way; run-agent.sh still checks both switches).
+#
+# Credentials: agent jobs check out with the FACTORY_TOKEN secret (a fine-grained PAT with
+# contents, pull requests and issues read/write and variables read, and NO workflows
+# permission), so their pushes trigger the gate, and log gh in with it, because
+# run-agent.sh removes tokens from the harness's environment. FACTORY_AGENT_ENV holds the
+# harness's own KEY=VALUE settings; run-agent.sh exports them for the harness alone.
+# The labeler uses only the built-in github.token. Event text reaches the shell only
+# through env:.
+#
+# Base branch: "main" below. If factory.config.yaml sets another base_branch, change
+# every line marked "# base_branch" in the three factory workflows.
+name: standing-agents
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      role:
+        description: The standing role to run now, or "due" for every role that is due
+        type: choice
+        options:
+          - due
+          - bug-fix
+          - perf
+          - babysit
+          - ship
+        default: due
+      dry_run:
+        description: Print the picked task and the harness command; launch nothing
+        type: boolean
+        required: false
+        default: false
+  issues:
+    types: [opened]
+
+# Nothing by default; each job asks for exactly what it uses.
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  agents:
+    if: >-
+      github.event_name != 'issues' &&
+      ((vars.FACTORY_ENABLED == 'true' && vars.FACTORY_CI_AGENTS == 'true') || inputs.dry_run)
+    runs-on: ubuntu-latest
+    # Keep it at least limits.agent_timeout_minutes + 30 (the claim, PR and exit-trap work
+    # around the harness): a job Actions kills at this limit never runs the exit trap.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every standing role: bug-fix, perf, babysit, ship. A dispatch that names one role
+        # skips the other entries (they are not created at all, so they never wait in, or
+        # cancel a pending run of, another role's concurrency group).
+        role: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.role != 'due' && format('["{0}"]', inputs.role) || '["bug-fix","perf","babysit","ship"]') }}
+    concurrency:
+      group: standing-agents-${{ matrix.role }}
+      cancel-in-progress: false
+    # github.token is used only by a dry run without the FACTORY_TOKEN secret, to read.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # The factory always runs from the base branch's scripts, whatever ref was dispatched.
+      - name: Check out the base branch with the factory token
+        uses: actions/checkout@v4
+        with:
+          ref: main # base_branch
+          fetch-depth: 0
+          token: ${{ secrets.FACTORY_TOKEN || github.token }}
+      - name: Log gh in with the factory token
+        env:
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          FALLBACK_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ -n "$FACTORY_TOKEN" ]; then
+            printf '%s\n' "$FACTORY_TOKEN" | gh auth login --with-token
+          elif [ "$DRY_RUN" = true ]; then
+            echo "::warning::the FACTORY_TOKEN secret is not set; this dry run reads with the read-only github.token"
+            printf '%s\n' "$FALLBACK_TOKEN" | gh auth login --with-token
+          else
+            echo "::error::the FACTORY_TOKEN secret is not set (fine-grained PAT: contents, pull requests and issues read/write, variables read, no workflows)"
+            exit 1
+          fi
+      # GitHub masks a secret in the log as a whole and line by line, not each VALUE of
+      # its KEY=VALUE lines: a harness printing one key would show it. Mask each value of
+      # 8 or more characters too.
+      - name: Mask the agent environment's values
+        env:
+          FACTORY_AGENT_ENV: ${{ secrets.FACTORY_AGENT_ENV }}
+        run: |
+          while IFS= read -r line || [ -n "$line" ]; do
+            line=${line%$'\r'}
+            case "$line" in [A-Za-z_]*=*) ;; *) continue ;; esac
+            value=${line#*=}
+            [ "${#value}" -ge 8 ] || continue
+            printf '::add-mask::%s\n' "${value//%/%25}"
+          done <<<"$FACTORY_AGENT_ENV"
+      - name: Run the role
+        env:
+          CI: 'true'
+          FACTORY_ENABLED: ${{ vars.FACTORY_ENABLED }}
+          FACTORY_CI_AGENTS: ${{ vars.FACTORY_CI_AGENTS }}
+          FACTORY_AGENT_ENV: ${{ secrets.FACTORY_AGENT_ENV }}
+          EVENT: ${{ github.event_name }}
+          ROLE: ${{ matrix.role }}
+          WANT: ${{ inputs.role }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(--role "$ROLE")
+          # A scheduled run, or a dispatch of "due", runs the role only when it is due;
+          # a dispatch that names this role runs it now.
+          if [ "$EVENT" != workflow_dispatch ] || [ "$WANT" = due ]; then args+=(--due); fi
+          if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
+          status=0
+          bash scripts/run-agent.sh "${args[@]}" || status=$?
+          # Exit 3: another run won the claim (for example a local run). Not a failure.
+          if [ "$status" -eq 3 ]; then
+            echo "::notice::$ROLE: the claim went to another run"
+            status=0
+          fi
+          exit "$status"
+      # The logs hold the harness's output, and anyone who can read this repository (on a
+      # public repository, anyone signed in to GitHub) can download them for 7 days. The
+      # step log above is masked; these files are not, so the same values are removed
+      # from them first: FACTORY_TOKEN (also in the base64 form a git config holds it in)
+      # and each FACTORY_AGENT_ENV value of 8 or more characters. A secret printed in any
+      # other form (decoded, split, re-encoded) is not caught. upload-artifact follows
+      # symbolic links, which would upload the file a link points to (gh's login, the git
+      # config) unredacted: a linked .factory or logs folder stops the upload, and links or
+      # other special files inside the logs are deleted. Nothing is uploaded unless this
+      # step succeeded.
+      - name: Redact secrets from the agent logs
+        id: redact
+        if: always()
+        env:
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          FACTORY_AGENT_ENV: ${{ secrets.FACTORY_AGENT_ENV }}
+        run: |
+          if [ -L .factory ] || [ -L .factory/logs ]; then
+            echo "::error::.factory or .factory/logs is a symbolic link; the agent logs are not uploaded"
+            exit 1
+          fi
+          [ -d .factory/logs ] || exit 0
+          find .factory/logs -mindepth 1 ! -type f ! -type d -exec rm -f -- {} +
+          values=""
+          add() { if [ "${#1}" -ge 8 ]; then values="$values$1"$'\n'; fi; }
+          if [ -n "$FACTORY_TOKEN" ]; then
+            add "$FACTORY_TOKEN"
+            add "$(printf 'x-access-token:%s' "$FACTORY_TOKEN" | base64 | tr -d '\n')"
+          fi
+          while IFS= read -r line || [ -n "$line" ]; do
+            line=${line%$'\r'}
+            case "$line" in [A-Za-z_]*=*) add "${line#*=}" ;; esac
+          done <<<"$FACTORY_AGENT_ENV"
+          [ -n "$values" ] || exit 0
+          find .factory/logs -type f ! -name '*.redacting' -print0 | while IFS= read -r -d '' f; do
+            REDACT=$values LC_ALL=C awk '
+              BEGIN { n = split(ENVIRON["REDACT"], v, "\n") }
+              {
+                s = $0
+                for (k = 1; k <= n; k++) {
+                  if (v[k] == "") continue
+                  out = ""
+                  while ((i = index(s, v[k])) > 0) {
+                    out = out substr(s, 1, i - 1) "***"
+                    s = substr(s, i + length(v[k]))
+                  }
+                  s = out s
+                }
+                print s
+              }' "$f" >"$f.redacting"
+            mv -f "$f.redacting" "$f"
+          done
+      - name: Upload the agent logs
+        if: always() && steps.redact.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: standing-logs-${{ matrix.role }}-attempt-${{ github.run_attempt }}
+          path: .factory/logs
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: ignore
+
+  labeler:
+    name: labeler
+    # Only issues opened by the owner, organization members or collaborators (the authors
+    # verify-fix.sh trusts; a personal-token FACTORY_TOKEN's account is one of them, a
+    # GitHub App's bot may not be, and file-issue.sh labels those itself). Anyone can open an
+    # issue that carries the agent-filed marker, and open agent-filed issues count toward
+    # run-agent.sh's backpressure limit, so labelling theirs would let anyone pause the
+    # finder work. file-issue.sh labels the issues it files itself; this job is its backstop.
+    if: >-
+      github.event_name == 'issues' && github.event.action == 'opened' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check out the base branch
+        uses: actions/checkout@v4
+        with:
+          ref: main # base_branch
+          persist-credentials: false
+      - name: Label an agent-filed issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.issue.number }}
+        run: bash scripts/file-issue.sh --enforce "$NUMBER"
