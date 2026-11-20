@@ -23,15 +23,39 @@ commands.add = (args, env, io) => {
   io.stdout(String(state.nextId));
 };
 
-// list: open items as `<id> <text>`, ascending by id. Read-only: never creates the file.
+// list [--all]: open items as `<id> <text>`; with --all, done items too as `<id> [x] <text>`.
+// Ascending by id. Read-only: never creates the file.
 commands.list = (args, env, io) => {
+  let all = false;
+  if (args.length > 0 && args[0] === '--all') {
+    all = true;
+    args = args.slice(1);
+  }
   if (args.length > 0) {
     const arg = args[0];
     throw new TodoError(arg.startsWith('-') ? `unknown flag for list: ${arg}` : `unexpected argument for list: ${arg}`);
   }
-  for (const item of todos.openItems(store.load(env))) {
-    io.stdout(`${item.id} ${item.text}`);
+  const state = store.load(env);
+  for (const item of all ? todos.allItems(state) : todos.openItems(state)) {
+    io.stdout(item.done ? `${item.id} [x] ${item.text}` : `${item.id} ${item.text}`);
   }
+};
+
+// Parses exactly one `<id>` argument (/^[1-9][0-9]*$/) for the named command.
+function parseId(name, args) {
+  if (args.length === 0) throw new TodoError(`missing id for ${name}`);
+  if (args.length > 1) throw new TodoError(`unexpected argument for ${name}: ${args[1]}`);
+  if (!/^[1-9][0-9]*$/.test(args[0])) throw new TodoError(`invalid id: ${args[0]}`);
+  return Number(args[0]);
+}
+
+// done <id>: marks the item done; silent on success, a no-op when already done.
+commands.done = (args, env, io) => {
+  const id = parseId('done', args);
+  const state = store.load(env);
+  const next = todos.markDone(state, id);
+  if (next === null) throw new TodoError(`no item with id ${id}`);
+  if (state.items.some((item) => item.id === id && !item.done)) store.save(env, next);
 };
 
 function run(argv, env, io) {
