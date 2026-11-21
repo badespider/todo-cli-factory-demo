@@ -79,7 +79,7 @@ jobs:
     steps:
       # The factory always runs from the base branch's scripts, whatever ref was dispatched.
       - name: Check out the base branch with the factory token
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main # base_branch
           fetch-depth: 0
@@ -191,7 +191,7 @@ jobs:
           done
       - name: Upload the agent logs
         if: always() && steps.redact.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: standing-logs-${{ matrix.role }}-attempt-${{ github.run_attempt }}
           path: .factory/logs
@@ -216,7 +216,7 @@ jobs:
       issues: write
     steps:
       - name: Check out the base branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main # base_branch
           persist-credentials: false
