@@ -58,13 +58,13 @@ jobs:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - name: Check out the judging copy (base branch)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: judge
           persist-credentials: false
       - name: Check out the PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: pr
@@ -98,7 +98,7 @@ jobs:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - name: Check out the PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: pr
@@ -134,7 +134,7 @@ jobs:
       issues: read
     steps:
       - name: Check out the judging copy (base branch)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: judge
@@ -142,7 +142,7 @@ jobs:
       # verify-fix.sh fetches the PR's head and base branches itself, so this checkout
       # keeps the read-only github.token. The repro runs under env -i (no token).
       - name: Check out the PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: pr
@@ -177,7 +177,7 @@ jobs:
       issues: write
     steps:
       - name: Check out the pushed commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           path: repo
@@ -248,7 +248,7 @@ jobs:
       # The auditor comes from where the audit starts, so a push can't change its own audit.
       - name: Check out the judging copy (where the audit starts)
         if: steps.start.outputs.created != 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.start.outputs.sha }}
           path: judge
